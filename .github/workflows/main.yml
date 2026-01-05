@@ -1,83 +1,72 @@
-      USERNAME: "MASTER"
-      PASSWORD: "admin@123"
-      RAM_SIZE: "7G"
-      CPU_CORES: "4"
-    devices:
-      - /dev/kvm
-      - /dev/net/tun
-    cap_add:
-      - NET_ADMIN
-    ports:
-      - "8006:8006"
-      - "3389:3389/tcp"
-      - "3389:3389/udp"
-    volumes:
-      - /tmp/windows-storage:/storage
-    restart: always
-    stop_grace_period: 2m
+HOW TO CREATE FREE VPS 
 
-EOF
+1. Generate auth key = "TAILSCALE_AUTH_KEY" (Description)
 
-echo
-echo "=== ✅ File windows.yml berhasil dibuat ==="
-cat windows.yml
+2. git hub Actions secrets / New secret= Actions secrets / New secret
 
-echo
-echo "=== 🚀 Menjalankan Windows 11 container ==="
-docker-compose -f windows.yml up -d
+3. (your repo name)24-7/.github/
+/= 
 
-echo
-echo "=== ☁️ Instalasi Cloudflare Tunnel ==="
-if [ ! -f "/usr/local/bin/cloudflared" ]; then
-  wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared
-  chmod +x /usr/local/bin/cloudflared
-fi
 
-echo
-echo "=== 🌍 Membuat tunnel publik untuk akses web & RDP ==="
-nohup cloudflared tunnel --url http://localhost:8006 > /var/log/cloudflared_web.log 2>&1 &
-nohup cloudflared tunnel --url tcp://localhost:3389 > /var/log/cloudflared_rdp.log 2>&1 &
-sleep 6
 
-CF_WEB=$(grep -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" /var/log/cloudflared_web.log | head -n 1)
-CF_RDP=$(grep -o "tcp://[a-zA-Z0-9.-]*\.trycloudflare\.com:[0-9]*" /var/log/cloudflared_rdp.log | head -n 1)
 
-echo
-echo "=============================================="
-echo "🎉 Instalasi Selesai!"
-echo
-if [ -n "$CF_WEB" ]; then
-  echo "🌍 Web Console (NoVNC / UI):"
-  echo "    ${CF_WEB}"
-else
-  echo "⚠️ Tidak menemukan link web Cloudflare (port 8006)"
-  echo "    Cek log: tail -f /var/log/cloudflared_web.log"
-fi
 
-if [ -n "$CF_RDP" ]; then
-  echo
-  echo "🖥️  Remote Desktop (RDP) melalui Cloudflare:"
-  echo "    ${CF_RDP}"
-else
-  echo "⚠️ Tidak menemukan link RDP Cloudflare (port 3389)"
-  echo "    Cek log: tail -f /var/log/cloudflared_rdp.log"
-fi
+//////RDP CODE//////
 
-echo
-echo "🔑 Username: MASTER"
-echo "🔒 Password: admin@123"
-echo
-echo "Untuk melihat status container:"
-echo "  docker ps"
-echo
-echo "Untuk menghentikan VM:"
-echo "  docker stop windows"
-echo
-echo "Untuk melihat log Windows:"
-echo "  docker logs -f windows"
-echo
-echo "Untuk melihat link Cloudflare:"
-echo "  grep 'trycloudflare' /var/log/cloudflared_*.log"
-echo
-echo "=== ✅ Windows 11 di Docker siap digunakan! ==="
-echo "=============================================="
+
+
+name: RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp-job:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable RDP
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Restart-Service -Name TermService -Force
+
+      - name: Create RDP User
+        run: |
+          $password = -join ((33..126) | Get-Random -Count 16 | % {[char]$_})
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
+          echo "RDP_USER=RDP" >> $env:GITHUB_ENV
+          echo "RDP_PASS=$password" >> $env:GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi"
+          $out = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri $url -OutFile $out
+          Start-Process msiexec.exe -ArgumentList "/i $out /quiet /norestart" -Wait
+
+      - name: Connect Tailscale
+        run: |
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${{ github.run_id }}
+          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          echo "TS_IP=$ip" >> $env:GITHUB_ENV
+
+      - name: Show Connection Info
+        run: |
+          Write-Host "`n============================"
+          Write-Host "✅ RDP Connected Successfully"
+          Write-Host "IP Address (Tailscale): $env:TS_IP"
+          Write-Host "Username: $env:RDP_USER"
+          Write-Host "Password: $env:RDP_PASS"
+          Write-Host "============================`n"
+
+      - name: Keep Alive
+        run: |
+          while ($true) {
+            Write-Host "[$(Get-Date)] RDP Running..."
+            Start-Sleep -Seconds 300
+          }
