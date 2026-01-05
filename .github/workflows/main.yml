@@ -1,39 +1,3 @@
-#!/bin/bash
-# ============================================
-# 🚀 Auto Installer: Windows 11 on Docker + Cloudflare Tunnel
-# ============================================
-
-set -e
-
-echo "=== 🔧 Menjalankan sebagai root ==="
-if [ "$EUID" -ne 0 ]; then
-  echo "Script ini butuh akses root. Jalankan dengan: sudo bash install-windows11-cloudflare.sh"
-  exit 1
-fi
-
-echo
-echo "=== 📦 Update & Install Docker Compose ==="
-apt update -y
-apt install docker-compose -y
-
-systemctl enable docker
-systemctl start docker
-
-echo
-echo "=== 📂 Membuat direktori kerja dockercom ==="
-mkdir -p /root/dockercom
-cd /root/dockercom
-
-echo
-echo "=== 🧾 Membuat file windows.yml ==="
-cat > windows.yml <<'EOF'
-version: "3.9"
-services:
-  windows:
-    image: dockurr/windows
-    container_name: windows
-    environment:
-      VERSION: "11"
       USERNAME: "MASTER"
       PASSWORD: "admin@123"
       RAM_SIZE: "7G"
